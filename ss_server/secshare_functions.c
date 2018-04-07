@@ -1,6 +1,8 @@
 #include "secshare.h"
 #include <math.h>
 #include <limits.h>
+#include <string.h>
+#include <sys/stat.h>
 
 int isPrime(long unsigned int number){
 	int prm = 1;
@@ -218,4 +220,30 @@ void BNs_free(BIGNUM ** array, long unsigned int size){
 		BN_free(array[i]);
 	}
 	free(array);
+}
+
+void init_folder_files(int num_files){
+	long unsigned int i;
+
+	FILE ** secfiles = (FILE **) malloc(sizeof(FILE *)*num_files);
+
+	char sfname[50];
+	char number[20];
+
+
+	struct stat st = {0};
+
+	if (stat("shares", &st) == -1) {
+		mkdir("shares", 0700);
+	}
+
+	for(i = 0; i < num_files; i++){
+		strcpy(sfname, "shares/secret");
+		sprintf(number, "%d", i);
+		strcat(sfname, number);
+		secfiles[i] = fopen(sfname, "a+");
+		fclose(secfiles[i]);
+	}
+
+	free(secfiles);
 }

@@ -2,12 +2,14 @@
 #include <stdlib.h>
 #include "secshare.h"
 
+
 int main(int argc, char ** argv){
 	int i = 0;
 
+	
+	long unsigned int n = 3;
+	long unsigned int k = 3;
 	/*
-	long unsigned int n = 9;
-	long unsigned int k = 11;
 	1,3,5,7 ... 
 	BIGNUM ** little_vs = get_n_first_primes(k);
 	/* big primes 
@@ -49,8 +51,11 @@ int main(int argc, char ** argv){
 
 	char * buffer;
 	size_t nread;
-	size_t chunk_size = 64; // read by 64 bytes -> 512 bits
+	size_t chunk_size = 64; // read by chunks of 64 bytes -> 512 bits
 
+	
+	init_folder_files(k);
+	/*
 	BIGNUM * test = BN_new();
 
 	buffer = (char *) malloc(chunk_size);
@@ -82,8 +87,10 @@ int main(int argc, char ** argv){
     	fclose(fp);
 	}
 	
-
-	//fclose(fp);
+	
+	BN_free(test);
+	*/
+	fclose(fp);
 	fclose(fs);
 
 	return 0;

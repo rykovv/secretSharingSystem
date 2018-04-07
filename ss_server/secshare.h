@@ -51,4 +51,7 @@ int has_unique_solution(int ** system, int p);
 /* Funcion para calcular el secreto */
 int get_unique_solution(int ** system, int p);
 
+/* Management folders and files */
+void init_folder_files(int num_files);
+
 #endif
