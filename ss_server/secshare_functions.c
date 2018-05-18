@@ -113,8 +113,6 @@ BIGNUM * compute_secret(BIGNUM ** shrs, BIGNUM ** vs, long unsigned int n, BIGNU
 		BN_free(den);
 		BNs_free(sub_vs, n);
 		free(indexes);
-
-		//printf("llega\n");
 	}
 
 	BN_CTX_end(ctx);
@@ -158,10 +156,6 @@ BIGNUM * multiplyer(BIGNUM ** elems, long unsigned int * indexes, const BIGNUM *
 	BN_CTX_end(ctx);
 	BN_CTX_free(ctx);
 	BN_RECP_CTX_free(recp);
-
-	//print_array(elems, i_size+1);
-	//print_array(indeces, i_size);
-	//printf("mul=%d\n", res);
 
 	return res;
 }
@@ -209,7 +203,7 @@ BIGNUM * convert_int2bn(long unsigned int n){
 	char n2str[32];
 	sprintf(n2str, "%lu", n);
 
-	BIGNUM * ret = generate_big_prime(bn_size);//BN_new();
+	BIGNUM * ret = generate_big_prime(bn_size);
 	BN_dec2bn(&ret, n2str);
 
 	return ret;
@@ -239,10 +233,7 @@ void init_folder_files(int num_files){
 		mkdir("shares", 0700);
 	}
 
-	strcpy(folder_name, "shares/secret_");
-	sprintf(number, "%lu", serial_number);
-	strcat(folder_name, number);
-
+	strcpy(folder_name, "shares");
 
 	if(stat(folder_name, &st) == -1){
 		mkdir(folder_name, 0700);
@@ -265,7 +256,7 @@ void init(){
 
 }
 
-void write_layer(int serial, BIGNUM ** shrs, long unsigned int k, const BIGNUM * m){
+void write_layer(BIGNUM ** shrs, long unsigned int k, const BIGNUM * m){
 	long unsigned int i;
 	char file_name[100];
 	char file_din[100];
@@ -273,10 +264,7 @@ void write_layer(int serial, BIGNUM ** shrs, long unsigned int k, const BIGNUM *
 	FILE * fp;
 	char buffer[bn_size*2 + 1];
 
-	sprintf(number, "%d", serial);
-	strcpy(file_name, "shares/secret_");
-	strcat(file_name, number);
-	strcat(file_name, "/share_");
+	strcpy(file_name, "shares/share_");
 
 	for(i = 0; i < k; i++){
 		strcpy(file_din, file_name);
@@ -312,7 +300,7 @@ void write_layer(int serial, BIGNUM ** shrs, long unsigned int k, const BIGNUM *
 	}
 }
 
-void secret_from_files(char * fold, long unsigned int n, long unsigned int k){
+void secret_from_files(long unsigned int n, long unsigned int k){
 	long unsigned int i = 2;
 	int fin = 0;
 	BIGNUM ** shrs;
@@ -320,7 +308,7 @@ void secret_from_files(char * fold, long unsigned int n, long unsigned int k){
 
 	char * buffer;
 
-	FILE * revealed = fopen("shares/secret_1/revealed.log", "a+");
+	FILE * revealed = fopen("shares/secret", "a+");
 
 	buffer = (char *) malloc(chunk_size*2 + 1);
 	if (!buffer) {
@@ -329,50 +317,49 @@ void secret_from_files(char * fold, long unsigned int n, long unsigned int k){
 	}
 
 	// leer M y Vs de fold
-	BIGNUM ** m = read_layer("shares/secret_1", k, 0);
-	BIGNUM ** vs = read_layer("shares/secret_1", k, 1);
-	for(i = 0; i < k; i++){
-		printf("vs[%d] = %s\n", i, BN_bn2dec(vs[i]));
-	}
-	i = 2;
+	BIGNUM ** m = read_layer(k, 0);
+	BIGNUM ** vs = read_layer(k, 1);
+
 	while(!fin){
-		shrs = read_layer("shares/secret_1", 5, i);
+		shrs = read_layer(5, i);
 		if(shrs[k-1] == NULL){
 			fin = 1;
 		} else {
-		printf("fiiiiin\n");
 			secret = compute_secret(shrs, vs, n, m[0]);
 			BNs_free(shrs, k);
+			printf("Part %d copmuted\n%s\n", i-2, BN_bn2dec(secret));
 			// write secret to a file
-			printf("secreto CALC \n%s\n", BN_bn2dec(secret));
 			BN_bn2bin(secret, buffer);
 			fwrite(buffer, 1, BN_num_bytes(secret), revealed);
 			i++;
+			BN_free(secret);
 		}
 	}
 
+	printf("Secret decyphered correctly\n");
+
 	fclose(revealed);
-	BN_free(secret);
 	BNs_free(vs, k);
 	BNs_free(m, k);
 	free(buffer);
 }
 
-BIGNUM ** read_layer(char * folder_name, long unsigned int k, long unsigned int layer_offset){
+BIGNUM ** read_layer(long unsigned int k, long unsigned int layer_offset){
 	BIGNUM ** bns = (BIGNUM **) malloc(sizeof(BIGNUM *)*k);
 	
 	FILE * fp;
 	char file_name[200];
+	char folder_name[200];
 	char number[20];
 	char buffer[chunk_size*2 + 1];
 	long unsigned int i, size;
 	size_t nread;
 	char last_layer = 0;
 
+	strcpy(folder_name, "shares/share_");
 
 	for(i = 0; (i < k) && !last_layer; i++){
 		strcpy(file_name, folder_name);
-		strcat(file_name, "/share_");
 
 		sprintf(number, "%ld", i);
 		strcat(file_name, number);
@@ -390,48 +377,21 @@ BIGNUM ** read_layer(char * folder_name, long unsigned int k, long unsigned int 
 			fread(buffer, 1, 16, fp);
 			buffer[16] = '\0';
 			size = atol(buffer);
-			printf("layer %d size = %lu\n", i, size);
 			fread(buffer, 1, size, fp);
 			buffer[size] = '\0';
 			bns[i] = BN_new();
 			BN_bin2bn(buffer, size, bns[i]);
-			/*
-			if((nread = fread(buffer, 1, layer_offset?(chunk_size+16):(chunk_size*2+16), fp)) <= 0){
-				last_layer = 1;
-				//BNs_free(bns, k);
-			} else {
-
-				bns[i] = BN_new();
-				buffer[layer_offset?(chunk_size+16):(chunk_size*2+16)] = '\0';
-				BN_bin2bn(buffer, layer_offset?chunk_size:chunk_size*2, bns[i]);
-
-				//printf("read share %d - %s\n", i, BN_bn2dec(bns[i]));
-
-				if (ferror(fp)) {
-		        	fprintf(stderr, "%s No such file or directory.\n", file_name); 
-		   		}
-			}
-			*/
 		} else {
 			last_layer = 1;
 		}
 		fclose(fp);
 	}
-		/*
-	if(last_layer) {
-		printf("END of files reached\n");
-		return NULL;
-	} else {
-		printf("Layer read.\n");
-	}
-	*/
 
 	return bns;
 }
 
 void start_thread(char * file, long unsigned int n, long unsigned int k){
 	int i = 0;
-	int serial = serial_number;
 
 	// Se crean k pequeños primos 
 	BIGNUM ** little_vs = get_n_first_primes(k);
@@ -454,14 +414,14 @@ void start_thread(char * file, long unsigned int n, long unsigned int k){
 
 	// bufer de lectura y numero de bytes leidos
 	char buffer[chunk_size + 1];
-	size_t nread;
+	size_t nread, nread_cum = 0;
 
 	// inicializamos ficheros y carpetas para su escritura posterior
 	init_folder_files(k);
 
 	// Primero se escriben M (módulo) y Vs
-	write_layer(serial, NULL, k, m);
-	write_layer(serial, little_vs, k, NULL);
+	write_layer(NULL, k, m);
+	write_layer(little_vs, k, NULL);
 
 	// un bignum auxiliar 
 	BIGNUM * temp_bn = BN_new();
@@ -469,70 +429,40 @@ void start_thread(char * file, long unsigned int n, long unsigned int k){
 	if (fp) {
 		// leemos el fuchero al buffer
     	while ((nread = fread(buffer, 1, chunk_size, fp)) > 0){
-        	//printf("buffer read= %d\n", nread); //fwrite(buffer, 1, nread, stdout);
+        	nread_cum += nread;
         	// convertimos el buffer en el bignum
         	BN_bin2bn(buffer, chunk_size, temp_bn);
         	buffer[BN_num_bytes(temp_bn)] = '\0';
-        	printf("Leido secreto de %d bytes \n%s\n", nread, BN_bn2dec(temp_bn));
+        	printf("Working %.1f%%\n", (float) nread_cum/sz*100);
         	// calculamos comparticiones para el pedazo leido
         	shares = compute_shares(big_primes, little_vs, k, n, temp_bn, m);
         	// escribimos las comparticiones en los ficheros creados 
-        	write_layer(serial, shares, k, NULL);
-        	//printf("bignum read=%s\n", BN_bn2dec(temp_bn));
+        	write_layer(shares, k, NULL);
         	// liberamos la memoria alocada para las comparticiones
         	BNs_free(shares, k);
-        	//printf("buffer %s\n", buffer);
-        	
-        	/*
-        	char pp[BN_num_bytes(temp_bn) + 1];
-        	pp[BN_num_bytes(temp_bn)] = '\0';
-        	BN_bn2bin(temp_bn, pp);
-        	fwrite(pp, 1, sizeof(pp), fs);
-        	*/
     	}
 
     
     	if (ferror(fp)) {
-        	printf("finished with errors\n");
+        	printf("Error creating shares\n");
     	} else {
-    		printf("finished seccesfully\n");
+    		printf("Shares created succesfully\n");
     	}
 	}
 
 	// limpiamos los recursos
-
-	BN_free(temp_bn);
-	
 	fclose(fp);
-	//fclose(fs);
-
-	//BN_free(sec);
+	BN_free(temp_bn);
 	BNs_free(little_vs, k);
 	BNs_free(big_primes, n);
-
-	// supuestamente todo esta terminado.
-	// Tratemos de hacer el proceso inverso
-	//ex_test("shares/secret_1/", m, little_vs);
-	serial_number++;
 }
 
 void ex_test(char * fold){
-	int i, k = 5;
+	int k = 5;
 
 	start_thread(fold, 3, k);
 
-	//secret_from_files(fold, 3, 5);
-	/*
-	BIGNUM ** vs = read_layer(fold, k, 1);
-
-	for(i = 0; i < k; i++){
-		printf("vs %d - %s\n", i, BN_bn2dec(vs[i]));
-	}
-
-	BNs_free(vs, k);
-	*/
-	
-	secret_from_files("shares/secret_1", 3, k);
+	secret_from_files(3, k);
 	
 	/*
 	size_t nread;

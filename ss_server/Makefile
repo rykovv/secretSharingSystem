@@ -4,7 +4,7 @@ sources = secshare_main.c secshare_functions.c
 dependencies = secshare.h
 
 secshare: $(sources) $(dependencies)
-	$(CC) $(sources) -lm -lssl -lcrypto -o $@
+	$(CC) $(sources) -lm -lssl -lcrypto -g -o $@
 
 clean:
 	rm secshare
