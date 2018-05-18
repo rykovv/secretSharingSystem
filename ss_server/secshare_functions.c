@@ -78,7 +78,7 @@ BIGNUM ** compute_shares(BIGNUM ** prms, BIGNUM ** vs, long unsigned k, long uns
 	return shrs;
 }
 
-BIGNUM * compute_secret(BIGNUM ** shrs, BIGNUM ** vs, long unsigned int n, const BIGNUM * m){
+BIGNUM * compute_secret(BIGNUM ** shrs, BIGNUM ** vs, long unsigned int n, BIGNUM * m){
 	long unsigned int * indexes, i, j;
 	BIGNUM ** sub_vs, * s, * nom, * den, * temp_den, * temp_mult, * temp_sum;
 	s = BN_new();
@@ -113,6 +113,8 @@ BIGNUM * compute_secret(BIGNUM ** shrs, BIGNUM ** vs, long unsigned int n, const
 		BN_free(den);
 		BNs_free(sub_vs, n);
 		free(indexes);
+
+		//printf("llega\n");
 	}
 
 	BN_CTX_end(ctx);
@@ -207,7 +209,7 @@ BIGNUM * convert_int2bn(long unsigned int n){
 	char n2str[32];
 	sprintf(n2str, "%lu", n);
 
-	BIGNUM * ret = BN_new();
+	BIGNUM * ret = generate_big_prime(bn_size);//BN_new();
 	BN_dec2bn(&ret, n2str);
 
 	return ret;
@@ -225,25 +227,423 @@ void BNs_free(BIGNUM ** array, long unsigned int size){
 void init_folder_files(int num_files){
 	long unsigned int i;
 
-	FILE ** secfiles = (FILE **) malloc(sizeof(FILE *)*num_files);
+	FILE * fp;
 
-	char sfname[50];
+	char folder_name[50];
 	char number[20];
-
+	char temp[50];
 
 	struct stat st = {0};
 
-	if (stat("shares", &st) == -1) {
+	if(stat("shares", &st) == -1) {
 		mkdir("shares", 0700);
 	}
 
-	for(i = 0; i < num_files; i++){
-		strcpy(sfname, "shares/secret");
-		sprintf(number, "%d", i);
-		strcat(sfname, number);
-		secfiles[i] = fopen(sfname, "a+");
-		fclose(secfiles[i]);
+	strcpy(folder_name, "shares/secret_");
+	sprintf(number, "%lu", serial_number);
+	strcat(folder_name, number);
+
+
+	if(stat(folder_name, &st) == -1){
+		mkdir(folder_name, 0700);
 	}
 
-	free(secfiles);
+	strcat(folder_name, "/share_");
+
+	for(i = 0; i < num_files; i++){
+		strcpy(temp, folder_name);
+		sprintf(number, "%ld", i);
+		strcat(temp, number);
+		fp = fopen(temp, "w+");
+		//fclose(secfiles[i]); move to finishing routine
+		strcpy(temp, folder_name);
+		fclose(fp);
+	}
+}
+
+void init(){
+
+}
+
+void write_layer(int serial, BIGNUM ** shrs, long unsigned int k, const BIGNUM * m){
+	long unsigned int i;
+	char file_name[100];
+	char file_din[100];
+	char number[20];
+	FILE * fp;
+	char buffer[bn_size*2 + 1];
+
+	sprintf(number, "%d", serial);
+	strcpy(file_name, "shares/secret_");
+	strcat(file_name, number);
+	strcat(file_name, "/share_");
+
+	for(i = 0; i < k; i++){
+		strcpy(file_din, file_name);
+
+		sprintf(number, "%ld", i);
+		strcat(file_din, number);
+
+		fp = fopen(file_din, "a+");
+
+		if (ferror(fp)) {
+        	fprintf(stderr, "%s No such file or directory.\n", file_din);
+    	}
+
+		if (m != NULL) {
+			sprintf(buffer, "%lu", BN_num_bytes(m));
+			buffer[16] = '\0';
+			fwrite(buffer, 1, 16, fp);
+        	
+        	BN_bn2bin(m, buffer);
+        	buffer[chunk_size*2] = '\0';
+        	fwrite(buffer, 1, chunk_size*2, fp);
+		} else {
+			sprintf(buffer, "%lu", BN_num_bytes(shrs[i]));
+			buffer[16] = '\0';
+			fwrite(buffer, 1, 16, fp);
+
+        	BN_bn2bin(shrs[i], buffer);
+    		buffer[chunk_size] = '\0';
+			fwrite(buffer, 1, chunk_size, fp);
+		}
+
+		fclose(fp);
+	}
+}
+
+void secret_from_files(char * fold, long unsigned int n, long unsigned int k){
+	long unsigned int i = 2;
+	int fin = 0;
+	BIGNUM ** shrs;
+	BIGNUM * secret = BN_new();
+
+	char * buffer;
+
+	FILE * revealed = fopen("shares/secret_1/revealed.log", "a+");
+
+	buffer = (char *) malloc(chunk_size*2 + 1);
+	if (!buffer) {
+		fprintf(stderr, "Memory error!");
+		return;
+	}
+
+	// leer M y Vs de fold
+	BIGNUM ** m = read_layer("shares/secret_1", k, 0);
+	BIGNUM ** vs = read_layer("shares/secret_1", k, 1);
+	for(i = 0; i < k; i++){
+		printf("vs[%d] = %s\n", i, BN_bn2dec(vs[i]));
+	}
+	i = 2;
+	while(!fin){
+		shrs = read_layer("shares/secret_1", 5, i);
+		if(shrs[k-1] == NULL){
+			fin = 1;
+		} else {
+		printf("fiiiiin\n");
+			secret = compute_secret(shrs, vs, n, m[0]);
+			BNs_free(shrs, k);
+			// write secret to a file
+			printf("secreto CALC \n%s\n", BN_bn2dec(secret));
+			BN_bn2bin(secret, buffer);
+			fwrite(buffer, 1, BN_num_bytes(secret), revealed);
+			i++;
+		}
+	}
+
+	fclose(revealed);
+	BN_free(secret);
+	BNs_free(vs, k);
+	BNs_free(m, k);
+	free(buffer);
+}
+
+BIGNUM ** read_layer(char * folder_name, long unsigned int k, long unsigned int layer_offset){
+	BIGNUM ** bns = (BIGNUM **) malloc(sizeof(BIGNUM *)*k);
+	
+	FILE * fp;
+	char file_name[200];
+	char number[20];
+	char buffer[chunk_size*2 + 1];
+	long unsigned int i, size;
+	size_t nread;
+	char last_layer = 0;
+
+
+	for(i = 0; (i < k) && !last_layer; i++){
+		strcpy(file_name, folder_name);
+		strcat(file_name, "/share_");
+
+		sprintf(number, "%ld", i);
+		strcat(file_name, number);
+
+		fp = fopen(file_name, "r");
+
+		fseek(fp, 0L, SEEK_END);
+		long unsigned int sz = ftell(fp);
+		fseek(fp, 0L, SEEK_SET);
+
+		if(sz >= (layer_offset?(layer_offset-1)*(chunk_size+16)+(chunk_size*2+16)+(chunk_size+16):(chunk_size*2+16))){
+			// set fseek
+			fseek(fp, layer_offset?(layer_offset-1)*(chunk_size+16)+(chunk_size*2+16):0, SEEK_SET);
+		
+			fread(buffer, 1, 16, fp);
+			buffer[16] = '\0';
+			size = atol(buffer);
+			printf("layer %d size = %lu\n", i, size);
+			fread(buffer, 1, size, fp);
+			buffer[size] = '\0';
+			bns[i] = BN_new();
+			BN_bin2bn(buffer, size, bns[i]);
+			/*
+			if((nread = fread(buffer, 1, layer_offset?(chunk_size+16):(chunk_size*2+16), fp)) <= 0){
+				last_layer = 1;
+				//BNs_free(bns, k);
+			} else {
+
+				bns[i] = BN_new();
+				buffer[layer_offset?(chunk_size+16):(chunk_size*2+16)] = '\0';
+				BN_bin2bn(buffer, layer_offset?chunk_size:chunk_size*2, bns[i]);
+
+				//printf("read share %d - %s\n", i, BN_bn2dec(bns[i]));
+
+				if (ferror(fp)) {
+		        	fprintf(stderr, "%s No such file or directory.\n", file_name); 
+		   		}
+			}
+			*/
+		} else {
+			last_layer = 1;
+		}
+		fclose(fp);
+	}
+		/*
+	if(last_layer) {
+		printf("END of files reached\n");
+		return NULL;
+	} else {
+		printf("Layer read.\n");
+	}
+	*/
+
+	return bns;
+}
+
+void start_thread(char * file, long unsigned int n, long unsigned int k){
+	int i = 0;
+	int serial = serial_number;
+
+	// Se crean k pequeños primos 
+	BIGNUM ** little_vs = get_n_first_primes(k);
+	// Luego n big primes
+	BIGNUM ** big_primes = generate_n_big_primes(n, bn_size);
+	// se crea el modulo para el sistema
+	const BIGNUM * m = generate_big_prime(bn_size + 10);
+	// variable para las comparticiones
+	BIGNUM ** shares;
+	
+	FILE * fp;
+	// Abrimos el fichero y averiguamos su tamaño
+	fp = fopen(file, "r");
+	fseek(fp, 0L, SEEK_END);
+	long unsigned int sz = ftell(fp);
+	fseek(fp, 0L, SEEK_SET);
+
+	printf("File size %lu bytes\n", sz);
+	printf("File size %lu bits\n", sz*8);
+
+	// bufer de lectura y numero de bytes leidos
+	char buffer[chunk_size + 1];
+	size_t nread;
+
+	// inicializamos ficheros y carpetas para su escritura posterior
+	init_folder_files(k);
+
+	// Primero se escriben M (módulo) y Vs
+	write_layer(serial, NULL, k, m);
+	write_layer(serial, little_vs, k, NULL);
+
+	// un bignum auxiliar 
+	BIGNUM * temp_bn = BN_new();
+	
+	if (fp) {
+		// leemos el fuchero al buffer
+    	while ((nread = fread(buffer, 1, chunk_size, fp)) > 0){
+        	//printf("buffer read= %d\n", nread); //fwrite(buffer, 1, nread, stdout);
+        	// convertimos el buffer en el bignum
+        	BN_bin2bn(buffer, chunk_size, temp_bn);
+        	buffer[BN_num_bytes(temp_bn)] = '\0';
+        	printf("Leido secreto de %d bytes \n%s\n", nread, BN_bn2dec(temp_bn));
+        	// calculamos comparticiones para el pedazo leido
+        	shares = compute_shares(big_primes, little_vs, k, n, temp_bn, m);
+        	// escribimos las comparticiones en los ficheros creados 
+        	write_layer(serial, shares, k, NULL);
+        	//printf("bignum read=%s\n", BN_bn2dec(temp_bn));
+        	// liberamos la memoria alocada para las comparticiones
+        	BNs_free(shares, k);
+        	//printf("buffer %s\n", buffer);
+        	
+        	/*
+        	char pp[BN_num_bytes(temp_bn) + 1];
+        	pp[BN_num_bytes(temp_bn)] = '\0';
+        	BN_bn2bin(temp_bn, pp);
+        	fwrite(pp, 1, sizeof(pp), fs);
+        	*/
+    	}
+
+    
+    	if (ferror(fp)) {
+        	printf("finished with errors\n");
+    	} else {
+    		printf("finished seccesfully\n");
+    	}
+	}
+
+	// limpiamos los recursos
+
+	BN_free(temp_bn);
+	
+	fclose(fp);
+	//fclose(fs);
+
+	//BN_free(sec);
+	BNs_free(little_vs, k);
+	BNs_free(big_primes, n);
+
+	// supuestamente todo esta terminado.
+	// Tratemos de hacer el proceso inverso
+	//ex_test("shares/secret_1/", m, little_vs);
+	serial_number++;
+}
+
+void ex_test(char * fold){
+	int i, k = 5;
+
+	start_thread(fold, 3, k);
+
+	//secret_from_files(fold, 3, 5);
+	/*
+	BIGNUM ** vs = read_layer(fold, k, 1);
+
+	for(i = 0; i < k; i++){
+		printf("vs %d - %s\n", i, BN_bn2dec(vs[i]));
+	}
+
+	BNs_free(vs, k);
+	*/
+	
+	secret_from_files("shares/secret_1", 3, k);
+	
+	/*
+	size_t nread;
+	char buffer[chunk_size + 1];
+	BIGNUM * temp_bn = BN_new();
+
+	FILE * fp, *fs;
+	fp = fopen(fold, "r");
+	fs = fopen("resec.txt", "ab+");
+
+
+	if (fp) {
+		// leemos el fuchero al buffer
+    	while ((nread = fread(buffer, 1, chunk_size, fp)) > 0){
+        	//printf("buffer read= %d\n", nread); //fwrite(buffer, 1, nread, stdout);
+        	// convertimos el buffer en el bignum
+        	BN_bin2bn(buffer, chunk_size, temp_bn);
+        	buffer[chunk_size] = '\0';
+        	printf("leido %s\n", BN_bn2dec(temp_bn));
+
+        	//?????????
+        	char pp[BN_num_bytes(temp_bn) + 1];
+        	pp[BN_num_bytes(temp_bn)] = '\0';
+        	BN_bn2bin(temp_bn, pp);
+        	fwrite(pp, 1, sizeof(pp), fs);
+    	}
+
+    	printf("finished seccesfully\n");
+    
+    	if (ferror(fp)) {
+        	printf("finished with errors\n");
+    	}
+	}
+	*/
+	/*
+	FILE * fp;
+	fp = fopen("resec.txt", "w+");
+	
+	BIGNUM * test = generate_big_prime(bn_size/2);// convert_int2bn(10);
+	char buffer[chunk_size + 1];
+	buffer[chunk_size/2] = '\0';
+	printf("creado 1\n%s\n", BN_bn2dec(test));
+	BN_bn2bin(test, buffer);
+	i = fwrite(buffer, 1, chunk_size/2, fp);
+	printf("Escrito %d bytes\n", i);
+
+	fclose(fp);
+	fp = fopen("resec.txt", "a");
+
+	BIGNUM * test2 = generate_big_prime(bn_size);
+	BN_dec2bn(&test2, "2");
+	printf("creado 2\n%s\n", BN_bn2dec(test2));
+	BN_bn2bin(test2, buffer);
+	buffer[chunk_size] = '\0';
+	i = fwrite(buffer, 1, chunk_size, fp);
+	printf("Escrito %d bytes\n", i);
+
+	fclose(fp);
+
+	fp = fopen("resec.txt", "a");
+
+	BIGNUM * test3 = generate_big_prime(bn_size);
+	printf("creado 3\n%s\n", BN_bn2dec(test3));
+	BN_bn2bin(test3, buffer);
+	buffer[chunk_size] = '\0';
+	i = fwrite(buffer, 1, chunk_size, fp);
+	printf("Escrito %d bytes\n", i);
+
+	fclose(fp);
+
+	printf("-----------------------\n");
+
+	fp = fopen("resec.txt", "r");
+	memset(buffer, 0, strlen(buffer));
+
+	BIGNUM * test11 = BN_new();
+	i = fread(buffer, 1, chunk_size/2, fp);
+	buffer[chunk_size/2] = '\0';
+	BN_bin2bn(buffer, chunk_size/2, test11);
+	printf("leido 1 %d bytes\n%s\n", i, BN_bn2dec(test11));
+
+	fclose(fp);
+	
+	fp = fopen("resec.txt", "r");
+	fseek(fp, chunk_size/2, SEEK_SET);
+	memset(buffer, 0, strlen(buffer));
+	BIGNUM * test22 = BN_new();
+	i = fread(buffer, 1, chunk_size, fp);
+	buffer[chunk_size] = '\0';
+	BN_bin2bn(buffer, 1, test22);
+	printf("leido 2 %d bytes\n%s\n", i, BN_bn2dec(test22));
+	
+	fclose(fp);
+	
+	fp = fopen("resec.txt", "r");
+	fseek(fp, chunk_size*3/2, SEEK_SET);
+
+	memset(buffer, 0, strlen(buffer));
+	BIGNUM * test33 = BN_new();
+	i = fread(buffer, 1, chunk_size, fp);
+	buffer[chunk_size] = '\0';
+	BN_bin2bn(buffer, chunk_size, test33);
+	printf("leido 3 %d bytes\n%s\n", i, BN_bn2dec(test33));
+	
+
+	BN_free(test2);
+	BN_free(test);
+	BN_free(test22);
+	BN_free(test11);
+	BN_free(test3);
+	BN_free(test33);
+	fclose(fp);
+	*/
 }

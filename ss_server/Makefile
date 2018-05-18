@@ -8,3 +8,4 @@ secshare: $(sources) $(dependencies)
 
 clean:
 	rm secshare
+	rm -R shares/
