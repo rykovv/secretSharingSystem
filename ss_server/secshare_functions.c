@@ -429,6 +429,7 @@ void start_thread(char * file, long unsigned int n, long unsigned int k){
 	if (fp) {
 		// leemos el fuchero al buffer
     	while ((nread = fread(buffer, 1, chunk_size, fp)) > 0){
+        	bzero(buffer, sizeof(buffer));
         	nread_cum += nread;
         	// convertimos el buffer en el bignum
         	BN_bin2bn(buffer, chunk_size, temp_bn);
