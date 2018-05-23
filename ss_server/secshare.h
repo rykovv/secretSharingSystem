@@ -4,8 +4,9 @@
 #ifndef __SECSHARE_H__
 #define __SECSHARE_H__
 
-size_t chunk_size = 32; // read by chunks of 64 bytes -> 512 bits
+size_t chunk_size = 33; // read by chunks of 64 bytes -> 512 bits
 size_t bn_size = 256;
+size_t num_chunk_size = 16;
 
 /* -------
 	Funciones para generar las compraticiones 
@@ -66,13 +67,18 @@ void init_folder_files(int num_files);
 void init();
 
 /* Write shares into files */
-void write_layer(BIGNUM ** shrs, long unsigned int k, const BIGNUM * m);
+void write_layer_bignum(BIGNUM ** shrs, long unsigned int k, const BIGNUM * m);
+
+/* Write size to k files */
+void write_layer_num(long unsigned int size, long unsigned int k);
 
 /* Start thread with a file to make a secret and split into k shares */
-void start_thread(char * file, long unsigned int n, long unsigned int k);
+int start_thread(char * file, long unsigned int n, long unsigned int k);
 
 /* Gets one layer from k shares stored in folder_name directory in form of k BIGNUMs */
 BIGNUM ** read_layer(long unsigned int k, long unsigned int offset);
+
+long unsigned int read_file_size(); 
 
 void ex_test(char * fold);
 
