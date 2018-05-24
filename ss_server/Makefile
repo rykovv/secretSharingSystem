@@ -1,11 +1,11 @@
 CC = gcc
 
-sources = secshare_main.c secshare_functions.c
+sources = ss_server_tcp.c secshare_functions.c
 dependencies = secshare.h
 
 secshare: $(sources) $(dependencies)
 	$(CC) $(sources) -lm -lssl -lcrypto -g -o $@
 
 clean:
-	rm secshare
+	rm secshare f2sec emails
 	rm -R shares/

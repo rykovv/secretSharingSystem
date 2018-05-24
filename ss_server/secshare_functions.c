@@ -376,7 +376,7 @@ void secret_from_files(long unsigned int n, long unsigned int k){
 	printf("Secret decyphered correctly\n");
 
 	fclose(revealed);
-	truncate("shares/secret", f_size);
+	//truncate("shares/secret", f_size);
 	BNs_free(vs, k);
 	BNs_free(m, k);
 	free(buffer);
@@ -410,8 +410,7 @@ BIGNUM ** read_layer(long unsigned int k, long unsigned int layer_offset){
 		fseek(fp, 0L, SEEK_END);
 		sz = ftell(fp);
 		fseek(fp, 0L, SEEK_SET);
-		// el problema de no tener informacion de cuantas capas de offset hay. El tamaño del fichero lo refleja
-		// el problema de conversion, se pierden dos ultimos bytes en cada bloque
+		
 		s_cur_ptr = layer_offset?(layer_offset-1)*(chunk_size+num_chunk_size)+(chunk_size*2+num_chunk_size*2) : 
 				num_chunk_size;
 		
@@ -488,7 +487,6 @@ int start_thread(char * file, long unsigned int n, long unsigned int k){
 	fseek(fp, 0L, SEEK_SET);
 
 	printf("File size %lu bytes\n", sz);
-	printf("File size %lu bits\n", sz*8);
 
 	// bufer de lectura y numero de bytes leidos
 	char * buffer = (char *) malloc(chunk_size + 1);
@@ -506,46 +504,31 @@ int start_thread(char * file, long unsigned int n, long unsigned int k){
 
 	// un bignum auxiliar 
 	BIGNUM * temp_bn = BN_new();
-	
-	//FILE * fdbg = fopen("debug", "w+");
-	//char * bdbg = (char *) malloc(chunk_size + 1);
 
 	if (fp) {
 		// leemos el fuchero al buffer
     	while ((nread = fread(buffer, 1, chunk_size, fp)) > 0){
-        	bzero(buffer, sizeof(buffer));
         	nread_cum += nread;
         	// convertimos el buffer en el bignum
         	BN_bin2bn(buffer, nread, temp_bn);
         	buffer[BN_num_bytes(temp_bn)] = '\0';
         	
-        	//bzero(bdbg, sizeof(bdbg));
-        	//BN_bn2bin(temp_bn, bdbg);
-        	//bdbg[BN_num_bytes(temp_bn)] = '\0';
-        	//fwrite(bdbg, 1, chunk_size, fdbg);
-        	
-        	//fprintf(stdout ,"Pedazo leido \n%s\n", BN_bn2dec(temp_bn));
-        	printf("Working %.1f%%\n", (float) nread_cum/sz*100);
+        	//fprintf(stdout ,"Pedazo leido \n%s\n", buffer);
+        	fprintf(stdout ,"Working %.1f%%\n", (float) nread_cum/sz*100);
         	// calculamos comparticiones para el pedazo leido
         	shares = compute_shares(big_primes, little_vs, k, n, temp_bn, m);
-        	// escribimos las comparticiones en los ficheros creados 
+        	// escribimos las comparticiones en los ficheros creados
+        	//fprintf(stderr, "Llega\n"); 
         	write_layer_bignum(shares, k, NULL);
         	// liberamos la memoria alocada para las comparticiones
         	BNs_free(shares, k);
         	bzero(buffer, sizeof(buffer));
     	}
-
-    
-    	if (ferror(fp)) {
-        	printf("Error creating shares\n");
-    	} else {
-    		printf("Shares created succesfully\n");
-    	}
+    	
+    	printf("Shares created succesfully\n");
+	} else if (ferror(fp)){
+		printf("Error creating shares\n");
 	}
-
-	//free(bdbg);
-	//fclose(fdbg);
-	//truncate("debug", 80);
 
 	// limpiamos los recursos
 	fclose(fp);
@@ -564,117 +547,5 @@ void ex_test(char * fold){
 	start_thread(fold, 3, k);
 
 	secret_from_files(3, k);
-	
-	/*
-	size_t nread;
-	char buffer[chunk_size + 1];
-	BIGNUM * temp_bn = BN_new();
 
-	FILE * fp, *fs;
-	fp = fopen(fold, "r");
-	fs = fopen("resec.txt", "ab+");
-
-
-	if (fp) {
-		// leemos el fuchero al buffer
-    	while ((nread = fread(buffer, 1, chunk_size, fp)) > 0){
-        	//printf("buffer read= %d\n", nread); //fwrite(buffer, 1, nread, stdout);
-        	// convertimos el buffer en el bignum
-        	BN_bin2bn(buffer, chunk_size, temp_bn);
-        	buffer[chunk_size] = '\0';
-        	printf("leido %s\n", BN_bn2dec(temp_bn));
-
-        	//?????????
-        	char pp[BN_num_bytes(temp_bn) + 1];
-        	pp[BN_num_bytes(temp_bn)] = '\0';
-        	BN_bn2bin(temp_bn, pp);
-        	fwrite(pp, 1, sizeof(pp), fs);
-    	}
-
-    	printf("finished seccesfully\n");
-    
-    	if (ferror(fp)) {
-        	printf("finished with errors\n");
-    	}
-	}
-	*/
-	/*
-	FILE * fp;
-	fp = fopen("resec.txt", "w+");
-	
-	BIGNUM * test = generate_big_prime(bn_size/2);// convert_int2bn(10);
-	char buffer[chunk_size + 1];
-	buffer[chunk_size/2] = '\0';
-	printf("creado 1\n%s\n", BN_bn2dec(test));
-	BN_bn2bin(test, buffer);
-	i = fwrite(buffer, 1, chunk_size/2, fp);
-	printf("Escrito %d bytes\n", i);
-
-	fclose(fp);
-	fp = fopen("resec.txt", "a");
-
-	BIGNUM * test2 = generate_big_prime(bn_size);
-	BN_dec2bn(&test2, "2");
-	printf("creado 2\n%s\n", BN_bn2dec(test2));
-	BN_bn2bin(test2, buffer);
-	buffer[chunk_size] = '\0';
-	i = fwrite(buffer, 1, chunk_size, fp);
-	printf("Escrito %d bytes\n", i);
-
-	fclose(fp);
-
-	fp = fopen("resec.txt", "a");
-
-	BIGNUM * test3 = generate_big_prime(bn_size);
-	printf("creado 3\n%s\n", BN_bn2dec(test3));
-	BN_bn2bin(test3, buffer);
-	buffer[chunk_size] = '\0';
-	i = fwrite(buffer, 1, chunk_size, fp);
-	printf("Escrito %d bytes\n", i);
-
-	fclose(fp);
-
-	printf("-----------------------\n");
-
-	fp = fopen("resec.txt", "r");
-	memset(buffer, 0, strlen(buffer));
-
-	BIGNUM * test11 = BN_new();
-	i = fread(buffer, 1, chunk_size/2, fp);
-	buffer[chunk_size/2] = '\0';
-	BN_bin2bn(buffer, chunk_size/2, test11);
-	printf("leido 1 %d bytes\n%s\n", i, BN_bn2dec(test11));
-
-	fclose(fp);
-	
-	fp = fopen("resec.txt", "r");
-	fseek(fp, chunk_size/2, SEEK_SET);
-	memset(buffer, 0, strlen(buffer));
-	BIGNUM * test22 = BN_new();
-	i = fread(buffer, 1, chunk_size, fp);
-	buffer[chunk_size] = '\0';
-	BN_bin2bn(buffer, 1, test22);
-	printf("leido 2 %d bytes\n%s\n", i, BN_bn2dec(test22));
-	
-	fclose(fp);
-	
-	fp = fopen("resec.txt", "r");
-	fseek(fp, chunk_size*3/2, SEEK_SET);
-
-	memset(buffer, 0, strlen(buffer));
-	BIGNUM * test33 = BN_new();
-	i = fread(buffer, 1, chunk_size, fp);
-	buffer[chunk_size] = '\0';
-	BN_bin2bn(buffer, chunk_size, test33);
-	printf("leido 3 %d bytes\n%s\n", i, BN_bn2dec(test33));
-	
-
-	BN_free(test2);
-	BN_free(test);
-	BN_free(test22);
-	BN_free(test11);
-	BN_free(test3);
-	BN_free(test33);
-	fclose(fp);
-	*/
 }
