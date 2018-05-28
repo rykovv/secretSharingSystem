@@ -4,6 +4,7 @@
 #ifndef __SECSHARE_H__
 #define __SECSHARE_H__
 
+
 size_t chunk_size = 33; // read by chunks of 64 bytes -> 512 bits
 size_t bn_size = 256;
 size_t num_chunk_size = 16;

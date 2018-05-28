@@ -16,17 +16,21 @@
 
 #define BUFSIZE 1024
 
+#define TCP_NODELAY 1
+#define SOL_TCP	6
+
 main(int argc, char ** argv) {
 	if(argc != 3){
 		perror("Wrong number of arguments: <server's IP> <server's port>\n");
 		return -1;
 	}
 
-	int           			sockfd, n, option, state, fsz;
+	int           			sockfd, n, option = 1, state, fsz, i;
 	struct sockaddr_in     	serv_addr ;
 	char 		 			buffer[BUFSIZE], file_name[BUFSIZE], password[BUFSIZE];
-	size_t					sent_bytes, read_bytes, rest_file;
-	long unsigned int 		num_shares, tot_shares;
+	size_t					sent_bytes, read_bytes, rest_file, received_bytes;
+	long unsigned int 		num_shares = 0, tot_shares = 0;
+	char					*const shares_path[1] = {"shares"};
 
 	FILE 					*tosec_fp, *email_fp, *secret;;
 
@@ -51,6 +55,11 @@ main(int argc, char ** argv) {
 		return -1;
 	}
 	printf("Conectado al servidor con IP <%s> : <%s> !\n", argv[1], argv[2]);
+
+	int one = 1;
+
+	setsockopt(sockfd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
+
 
 	/* ----------------------------------------- */
 
@@ -209,14 +218,30 @@ main(int argc, char ** argv) {
 		/* ----------------------------------------- */
 
 	} else if (option == 0) { /* Recuperar el secreto */
+		i = 0;
+		
+		fprintf(stdout, "Indique el número de comparticiones que va a enviar:\n");
+		//bzero(buffer, BUFSIZE);
+		fgets(buffer, BUFSIZE, stdin);
+		tot_shares = atol(buffer);
+		send(sockfd, buffer, BUFSIZE, 0);
+		fprintf(stdout, "Número total de comparticiones = %d\n", tot_shares);
 
-		fprintf(stdout, "Coloquen las comparticiones en carpeta shares. Después pulse Enter\n");
-		fgets(buffer, sizeof(char), stdin);
+		fprintf(stdout, "Indique el número mínimo y necesario de comparticiones para revelar el sercreto:\n");
+		//bzero(buffer, BUFSIZE);
+		fgets(buffer, BUFSIZE, stdin);
+		num_shares = atol(buffer);
+		send(sockfd, buffer, BUFSIZE, 0);
+		fprintf(stdout, "Número mínimo de comparticiones = %d\n", num_shares);
 
+
+		//fprintf(stdout, "Coloquen las comparticiones en carpeta shares. Después pulse Enter\n");
+		//getchar();
+		
 		FTS *ftsp;
 		FTSENT *p, *chp;
 
-		if ((ftsp = fts_open("shares", FTS_NOCHDIR, NULL)) == NULL) {
+		if ((ftsp = fts_open(shares_path, FTS_NOCHDIR, NULL)) == NULL) {
     		warn("fts_open");
 		}
 
@@ -225,25 +250,28 @@ main(int argc, char ** argv) {
 		if (chp == NULL) {
                /* no files to traverse */
 		} else {
-			 while ((p = fts_read(ftsp)) != NULL) {
+			 while (((p = fts_read(ftsp)) != NULL) && (i < tot_shares)) {
 			 	if((p->fts_info) == FTS_F){
+			 		
 			 		tosec_fp = fopen(p->fts_path, "r");
-			 		bzero(buffer, BUFSIZE);
+			 		fprintf(stdout, "Se abre el fichero %s de ", p->fts_path);
+
+			 		//bzero(buffer, BUFSIZE);
 
 			 		fseek(tosec_fp, 0L, SEEK_END);
 					fsz = ftell(tosec_fp);
 					fseek(tosec_fp, 0L, SEEK_SET);
 
-					bzero(buffer, BUFSIZE);
-
 					sprintf(buffer, "%d", fsz);
+					buffer[sizeof(fsz)] = '\0';
+					fprintf(stdout, "%s bytes\n", buffer);
 					sleep(1);
 					send(sockfd, buffer, sizeof(fsz), 0);
 					sleep(1);
 					while(((read_bytes = fread(buffer, sizeof(char), BUFSIZE, tosec_fp)) > 0) && (fsz > 0)) {
 						send(sockfd, buffer, read_bytes, 0);
 						fsz -= read_bytes;
-						printf("Sent %d bytes emails\n", read_bytes);
+						//printf("Sent %d bytes share %d\n", read_bytes, i);
 					}
 					fprintf(stdout, "La compartición %s fue enviada al servidor.\n", p->fts_name);
 					fclose(tosec_fp);
@@ -251,28 +279,22 @@ main(int argc, char ** argv) {
 			 		// enviar finished = 0
 					sprintf(buffer, "%d", 0);
 					sleep(1);
-					send(sockfd, buffer, sizeof(int), 0);
+					int ret = 0;
+					send(sockfd, buffer, sizeof(int), ret);
 					sleep(1);
+					i++;
 			 	} else {
-					send(sockfd, buffer, sizeof(int), 1);
+			 		int ret = 1;
+					send(sockfd, buffer, sizeof(int), ret);
 					sleep(1);
 			 	}
-			 	/*
-				switch (p->fts_info) {
-					case FTS_F:
-						printf("f %s\n", p->fts_path);
-						break;
-					default:
-						break;
-				}
-				*/
 			}
 			fts_close(ftsp);
 		}
 
 		fprintf(stdout, "Esperando la respuesta del servidor...\n");
 
-		recv(newsockfd, buffer, BUFSIZE, 0);
+		recv(sockfd, buffer, BUFSIZE, 0);
 		fsz = atoi(buffer);
 		rest_file = fsz;
 
@@ -282,7 +304,7 @@ main(int argc, char ** argv) {
 		bzero(buffer, BUFSIZE);
 
 		while(rest_file > 0){
-			received_bytes = recv(newsockfd, buffer, BUFSIZE, 0);
+			received_bytes = recv(sockfd, buffer, BUFSIZE, 0);
 			fwrite(buffer, sizeof(char), received_bytes, secret);
 			fprintf(stdout, "%d - %d = %d\n", rest_file, received_bytes, rest_file - received_bytes);
 			fprintf(stdout, "Escrito %d bytes del fichero.\n", received_bytes);
@@ -292,7 +314,12 @@ main(int argc, char ** argv) {
 		fclose(secret);
 		truncate("shares/secret", fsz);
 
-		fprintf(stdout, "El secreto está guardado en la carpeta shares.\n");
+		fprintf(stdout, "Introduzca la contraseña del secreto:\n");
+		fgets(password, BUFSIZE, stdin);
+		sprintf(buffer, "openssl enc -aes-128-cbc -d -in shares/secret -out shares/yourSecret -k %s", password);
+		system(buffer);
+
+		fprintf(stdout, "El secreto está guardado en la carpeta shares como fichero 'yourSecret'.\n");
 
 	} else {
 		fprintf(stderr, "Opción inválida %d\n", option);

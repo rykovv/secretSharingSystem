@@ -8,19 +8,30 @@
 
 #define BUFSIZE 1024
 
-void natural_qsort(char str[]);
+#define TCP_NODELAY 1
+#define SOL_TCP	6
 
 main(int argc, char ** argv) {
 	if(argc != 2){
 		perror("Wrong number of arguments: <port number>\n");
 		return -1;
 	}
-    int 						sockfd, newsockfd, clilen, received_bytes;
-	int 						option, state, finished, rest_file, n, i;
+    int 						sockfd, newsockfd, clilen, received_bytes, read_bytes;
+	int 						option, state, finished, rest_file, n, i, fsz;
 	struct sockaddr_in   		cli_addr, serv_addr;
-	char 	             		buffer[BUFSIZE], file_name[BUFSIZE], din_name[BUFSIZE], number[20];
+	char 	             		buffer[BUFSIZE], file_name[BUFSIZE], file_din[BUFSIZE], number[20];
 	FILE 						*tosec_fp, *email_fp, *secret, *share;
 	long unsigned int 			num_shares, tot_shares;
+
+	
+	if(1){
+
+		ex_test("emails");
+
+		return 0;
+	}
+	
+
 
 	if ((sockfd = socket(AF_INET, SOCK_STREAM,0)) < 0){
 		perror("server: can't open stream socket") ;
@@ -41,6 +52,9 @@ main(int argc, char ** argv) {
 		listen(sockfd, 5);
 		clilen = sizeof(cli_addr);
 		newsockfd = accept(sockfd, (struct sockaddr *)&cli_addr, &clilen);
+
+		int one = 1;
+		setsockopt(newsockfd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
 		
 		if (newsockfd < 0) {
 		    perror("server: accept error") ;
@@ -145,7 +159,7 @@ main(int argc, char ** argv) {
 			/* ----------------------------------------- */
 
 			// clean resources
-			system("./cleanRes.sh");
+			//system("./cleanRes.sh");
 
 			/* ----------------------------------------- */
 
@@ -161,32 +175,42 @@ main(int argc, char ** argv) {
 			finished = 0;
 			i = 0;
 
-			bzero(buffer, BUFSIZE);
+			//bzero(buffer, BUFSIZE);
+			recv(newsockfd, buffer, BUFSIZE, 0);
+			tot_shares = atoi(buffer);
+
+			fprintf(stdout, "Número total de comparticiones = %d\n", tot_shares);
+
 			recv(newsockfd, buffer, BUFSIZE, 0);
 			num_shares = atoi(buffer);
 
-			while(!finished){
-				strcpy(file_name, "shares/share_");
+			fprintf(stdout, "Número mínimo de comparticiones = %d\n", num_shares);
+			//bzero(buffer, BUFSIZE);
 
-				strcpy(file_din, file_name);
-				sprintf(number, "%ld", i);
-				strcat(file_din, number);
+			strcpy(file_name, "shares/share_");
+			
+			while((!finished) && (i < tot_shares)){
 
-				share = fopen(file_din, "w+");
 				bzero(buffer, BUFSIZE);
-				recv(newsockfd, buffer, BUFSIZE, 0);
+				//fprintf(stdout, "buf %s\n", buffer);
+				while(recv(newsockfd, buffer, BUFSIZE, 0) != 4);
+				//fprintf(stdout, "buf %s\n", buffer);
 				fsz = atoi(buffer);
 				rest_file = fsz;
 
 				fprintf(stdout, "El tamaño de la compartición %d = %d bytes\n", i, fsz);
 
-				bzero(buffer, BUFSIZE);
+				strcpy(file_din, file_name);
+				sprintf(number, "%ld", i);
+				strcat(file_din, number);
+				//bzero(buffer, BUFSIZE);
+				share = fopen(file_din, "w+");
 
 				while(rest_file > 0){
 					received_bytes = recv(newsockfd, buffer, BUFSIZE, 0);
 					fwrite(buffer, sizeof(char), received_bytes, share);
 					rest_file -= received_bytes;
-					fprintf(stdout, "Recibido y escrito %d bytes de la compartición %d\n", i, received_bytes);
+					fprintf(stdout, "Recibido y escrito %d bytes de la compartición %d\n", received_bytes, i);
 				}
 
 				fclose(share);
@@ -194,18 +218,38 @@ main(int argc, char ** argv) {
 
 				fprintf(stdout, "La compartición %d fue recibida.\n", i);
 
-				bzero(buffer, BUFSIZE);
+				//bzero(buffer, BUFSIZE);
 				recv(newsockfd, buffer, BUFSIZE, 0);
 				finished = atoi(buffer);
 
 				i++;
 			}
 
+			fprintf(stdout, "Todas las comparticiones fueron recibidas\n");
+
 			//decipher
-			secret_from_files(num_shares, num_shares);
+			secret_from_files(num_shares, tot_shares);
 
 			// send back secret
-			
+			secret = fopen("shares/secret", "r");
+
+			fseek(secret, 0L, SEEK_END);
+			fsz = ftell(secret);
+			fseek(secret, 0L, SEEK_SET);
+
+			sprintf(buffer, "%d", fsz);
+			//sleep(5);
+			fprintf(stdout, "El tamaño del secreto a enviar es %s\n", buffer);
+			send(newsockfd, buffer, sizeof(fsz), 0);
+			sleep(1);
+			while(((read_bytes = fread(buffer, sizeof(char), BUFSIZE, secret)) > 0) && (fsz > 0)) {
+				send(newsockfd, buffer, read_bytes, 0);
+				fsz -= read_bytes;
+				printf("Sent %d bytes secret %d\n", read_bytes, i);
+			}
+			fprintf(stdout, "El secreto fue enviado al cliente.\n");
+			fclose(secret);
+
 		} else {
 			fprintf(stderr, "Not supportable option %d\n", option);
 		}
@@ -213,9 +257,4 @@ main(int argc, char ** argv) {
 		close(newsockfd);
 		printf("Connection is closed.\n");
 	}
-}
-
-/* qsort function that order a string according the cmpfunc (in our case the natural order) */
-void natural_qsort(char str[]) {
-  qsort(str, (size_t) strlen(str), (size_t) sizeof(char), strcmp);
 }
